@@ -1,0 +1,118 @@
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+#include <Servo.h>
+
+// LCD Setup
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+
+// FSR and Potentiometer Pins
+#define FSR1_PIN A0
+#define FSR2_PIN A1
+#define EMG_PIN A2
+#define SERVO_PIN 9
+
+// Thresholds
+#define EMG_THRESHOLD 450
+#define FORCE_THRESHOLD 600
+#define MAX_SERVO_ANGLE 180
+#define START_SERVO_ANGLE 90
+
+Servo myservo;
+int servoAngle = START_SERVO_ANGLE;
+bool isGripping = false;
+bool gripFinished = false;
+
+void setup() {
+  Serial.begin(9600);
+  lcd.init();
+  lcd.clear();
+  lcd.backlight();
+  
+  myservo.attach(SERVO_PIN);
+  myservo.write(90);
+
+  lcd.setCursor(0, 0);
+  lcd.print("System Ready");
+  delay(2000);
+  lcd.clear();
+}
+
+void loop() {
+  int emgVal = analogRead(EMG_PIN);
+  int force1 = analogRead(FSR1_PIN);
+  int force2 = analogRead(FSR2_PIN);
+  float avgForce = (force1 + force2) / 2.0;
+
+  // Reset after a full cycle
+  if (!isGripping && !gripFinished) {
+    servoAngle = START_SERVO_ANGLE;
+    myservo.write(servoAngle);
+  }
+  
+  // Start gripping if EMG threshold is crossed
+  if (emgVal > EMG_THRESHOLD && !isGripping && !gripFinished) {
+    isGripping = true;
+    Serial.println("Gripping started...");
+  }
+
+  // Gripping logic
+  if (isGripping) {
+    if (avgForce < FORCE_THRESHOLD || servoAngle < MAX_SERVO_ANGLE) {
+      servoAngle = servoAngle+5;
+      myservo.write(servoAngle);
+      Serial.print("Servo moving to angle: ");
+      Serial.println(servoAngle);
+      delay(30);
+    } else {
+      isGripping = false;
+      gripFinished = true;
+      Serial.println("Force threshold reached, stopping grip");
+      classifyMaterial(servoAngle);
+    }
+  }
+
+  
+  // Display live data
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("F:");
+  lcd.print((int)avgForce);
+  lcd.print(" A:");
+  lcd.print(servoAngle);
+  myservo.write(180);
+
+  if (gripFinished) {
+    lcd.setCursor(0, 1);
+    lcd.print("Gripped. Reset pot.");
+  } else {
+    lcd.setCursor(0, 1);
+    lcd.print("EMG:");
+    lcd.print(potVal);
+  }
+
+  // Reset condition: pot back to low to allow next trial
+  if (potVal < EMG_THRESHOLD && gripFinished) {
+    gripFinished = false;
+    Serial.println("Reset ready for next grip");
+  }
+
+  delay(100);
+}
+
+void classifyMaterial(int angle) {
+  String material;
+  if (angle < 60) material = "Metal (Hard)";
+  else if (angle < 100) material = "Glass";fdwee2
+  else if (angle < 140) material = "Foam";
+  else material = "Soft Sponge";
+  
+  Serial.print("Classified Material: ");
+  Serial.println(material);
+
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("Material:");
+  lcd.setCursor(0, 1);
+  lcd.print(material);
+  delay(3000);
+}
